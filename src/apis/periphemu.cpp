@@ -23,7 +23,9 @@
 #include "../peripheral/speaker.hpp"
 #include "../peripheral/tank.hpp"
 #include "../runtime.hpp"
+#include "../termsupport.hpp"
 #include "../util.hpp"
+#include "../terminal/SDLTerminal.hpp"
 
 static std::unordered_map<std::string, peripheral_init_fn> initializers = {
     {"monitor", peripheral_init_fn(monitor::init)},
@@ -179,8 +181,50 @@ static int periphemu_names(lua_State *L) {
     return 1;
 }
 
+static int periphemu_switchTo(lua_State *L) {
+    lastCFunction = __func__;
+    const int id = (int)luaL_checkinteger(L, 1);
+    Terminal * term = NULL;
+    {
+        LockGuard lock(computers);
+        for (Computer * c : *computers) if (c->id == id) {term = c->term; break;}
+    }
+    if (term == NULL) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "Computer %d is not running", id);
+        return 2;
+    }
+    if (singleWindowMode) {
+        std::lock_guard<std::mutex> lock(renderTargetsLock);
+        const auto it = std::find(renderTargets.begin(), renderTargets.end(), term);
+        if (it == renderTargets.end()) {
+            lua_pushboolean(L, false);
+            lua_pushfstring(L, "Computer %d does not have a window", id);
+            return 2;
+        }
+        renderTarget = it;
+        term->changed = true;
+    } else {
+        SDLTerminal * sdlterm = dynamic_cast<SDLTerminal*>(term);
+        if (sdlterm == NULL) {
+            lua_pushboolean(L, false);
+            lua_pushfstring(L, "Computer %d does not have a window", id);
+            return 2;
+        }
+        queueTask([](void* win)->void* {
+            SDL_ShowWindow((SDL_Window*)win);
+            SDL_RaiseWindow((SDL_Window*)win);
+            return NULL;
+        }, sdlterm->win, true);
+    }
+    term->onActivate();
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 static luaL_Reg periphemu_reg[] = {
     {"create", periphemu_create},
+    {"switchTo", periphemu_switchTo},
     {"remove", periphemu_remove},
     {"names", periphemu_names},
     {NULL, NULL}

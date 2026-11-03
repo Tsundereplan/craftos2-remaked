@@ -306,17 +306,21 @@ static int term_setPaletteColor(lua_State *L) {
     if (term->mode == 2) color = (int)luaL_checkinteger(L, 1);
     else color = log2i((int)luaL_checkinteger(L, 1));
     if (color < 0 || color > 255) return luaL_error(L, "bad argument #1 (invalid color %d)", color);
-    std::lock_guard<std::mutex> lock(term->locked);
+    uint8_t r, g, b;
     if (lua_isnoneornil(L, 3)) {
         const unsigned int rgb = (unsigned int)luaL_checkinteger(L, 2);
-        term->palette[color].r = rgb >> 16 & 0xFF;
-        term->palette[color].g = rgb >> 8 & 0xFF;
-        term->palette[color].b = rgb & 0xFF;
+        r = rgb >> 16 & 0xFF;
+        g = rgb >> 8 & 0xFF;
+        b = rgb & 0xFF;
     } else {
-        term->palette[color].r = (uint8_t)(luaL_checknumber(L, 2) * 255);
-        term->palette[color].g = (uint8_t)(luaL_checknumber(L, 3) * 255);
-        term->palette[color].b = (uint8_t)(luaL_checknumber(L, 4) * 255);
+        r = (uint8_t)(luaL_checknumber(L, 2) * 255);
+        g = (uint8_t)(luaL_checknumber(L, 3) * 255);
+        b = (uint8_t)(luaL_checknumber(L, 4) * 255);
     }
+    std::lock_guard<std::mutex> lock(term->locked);
+    term->palette[color].r = r;
+    term->palette[color].g = g;
+    term->palette[color].b = b;
     if (selectedRenderer == 4 && color < 16)
         printf("TM:%d;%d,%f,%f,%f\n", term->id, color, term->palette[color].r / 255.0, term->palette[color].g / 255.0, term->palette[color].b / 255.0);
     term->changed = true;
@@ -355,9 +359,9 @@ static int term_setPixel(lua_State *L) {
     const int x = (int)luaL_checkinteger(L, 1);
     const int y = (int)luaL_checkinteger(L, 2);
     const int color = term->mode == 2 ? (int)luaL_checkinteger(L, 3) : log2i((int)luaL_checkinteger(L, 3));
+    if (color < 0 || color > (term->mode == 2 ? 255 : 15)) return luaL_error(L, "bad argument #3 (invalid color %d)", color);
     std::lock_guard<std::mutex> lock(term->locked);
     if (x < 0 || y < 0 || (unsigned)x >= term->width * Terminal::fontWidth || (unsigned)y >= term->height * Terminal::fontHeight) return 0;
-    if (color < 0 || color > (term->mode == 2 ? 255 : 15)) return luaL_error(L, "bad argument #3 (invalid color %d)", color);
     term->pixels[y][x] = (unsigned char)color;
     term->changed = true;
     return 0;

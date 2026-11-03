@@ -252,7 +252,10 @@ static const char * yield_loader(lua_State *L, void* data, size_t *size) {
             lua_xmove(coro, ctx->L, ctx->argcount);
             ctx->notify.notify_all();
             while (ctx->status == 1) ctx->notify.wait(lock);
-            if (ctx->status == 3) luaL_error(L, "");
+            if (ctx->status == 3) {
+                lock.unlock();
+                luaL_error(L, "");
+            }
             lua_xmove(ctx->L, coro, ctx->argcount);
             ctx->status = 0;
         } else {

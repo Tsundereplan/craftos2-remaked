@@ -517,6 +517,12 @@ static bool forceMigrate = false;
 static path_t customDataDir;
 static std::vector<std::pair<std::string, std::string>> configOptions;
 
+static path_t absolutePath(const std::string& p) {
+    std::error_code e;
+    path_t retval = fs::absolute(path_t(p), e);
+    return e ? path_t(p) : retval.lexically_normal();
+}
+
 #define setConfigSettingB(n) else if (strcmp(name, #n) == 0) config.n = strcasecmp(value, "true") == 0
 #define setConfigSettingI(n) else if (strcmp(name, #n) == 0) config.n = atoi(value)
 
@@ -601,20 +607,20 @@ int parseArguments(const std::vector<std::string>& argv) {
         else if (arg == "--tror") { selectedRenderer = 4; checkTTY(); }
         else if (arg == "--hardware-sdl" || arg == "--hardware") selectedRenderer = 5;
         else if (arg == "--single") singleWindowMode = true;
-        else if (arg == "--script") script_file = argv[++i];
-        else if (arg.substr(0, 9) == "--script=") script_file = arg.substr(9);
+        else if (arg == "--script") script_file = absolutePath(argv[++i]).string();
+        else if (arg.substr(0, 9) == "--script=") script_file = absolutePath(arg.substr(9)).string();
         else if (arg == "--exec") script_file = "\x1b" + argv[++i];
         else if (arg == "--args") script_args = argv[++i];
         else if (arg == "--plugin") customPlugins.push_back(argv[++i]);
-        else if (arg == "--directory" || arg == "-d" || arg == "--data-dir") setBasePath(argv[++i]);
-        else if (arg.substr(0, 3) == "-d=") setBasePath(arg.substr(3));
-        else if (arg == "--computers-dir" || arg == "-C") computerDir = argv[++i];
-        else if (arg.substr(0, 3) == "-C=") computerDir = arg.substr(3);
-        else if (arg == "--start-dir") customDataDir = argv[++i];
-        else if (arg.substr(0, 3) == "-c=") customDataDir = arg.substr(3);
-        else if (arg == "--rom") setROMPath(argv[++i].c_str());
-        else if (arg == "--assets-dir" || arg == "-a") setROMPath(path_t(argv[++i])/"assets"/"computercraft"/"lua");
-        else if (arg.substr(0, 3) == "-a=") setROMPath(path_t(arg.substr(3))/"assets"/"computercraft"/"lua");
+        else if (arg == "--directory" || arg == "-d" || arg == "--data-dir") setBasePath(absolutePath(argv[++i]));
+        else if (arg.substr(0, 3) == "-d=") setBasePath(absolutePath(arg.substr(3)));
+        else if (arg == "--computers-dir" || arg == "-C") computerDir = absolutePath(argv[++i]);
+        else if (arg.substr(0, 3) == "-C=") computerDir = absolutePath(arg.substr(3));
+        else if (arg == "--start-dir") customDataDir = absolutePath(argv[++i]);
+        else if (arg.substr(0, 3) == "-c=") customDataDir = absolutePath(arg.substr(3));
+        else if (arg == "--rom") setROMPath(absolutePath(argv[++i]));
+        else if (arg == "--assets-dir" || arg == "-a") setROMPath(absolutePath(argv[++i])/"assets"/"computercraft"/"lua");
+        else if (arg.substr(0, 3) == "-a=") setROMPath(absolutePath(arg.substr(3))/"assets"/"computercraft"/"lua");
         else if (arg == "--mc-save") computerDir = getMCSavePath() / argv[++i] / "computer";
         else if (arg == "-i" || arg == "--id") {
             manualID = true;
@@ -639,7 +645,7 @@ int parseArguments(const std::vector<std::string>& argv) {
                 std::cerr << "Could not parse mount path string\n";
                 return 1;
             }
-            customMounts.push_back(std::make_tuple(mount_path.substr(0, mount_path.find('=')), mount_path.substr(mount_path.find('=') + 1), arg == "--mount" ? -1 : (arg == "--mount-rw")));
+            customMounts.push_back(std::make_tuple(mount_path.substr(0, mount_path.find('=')), absolutePath(mount_path.substr(mount_path.find('=') + 1)).string(), arg == "--mount" ? -1 : (arg == "--mount-rw")));
         } else if (arg == "--renderer" || arg == "-r") {
             if (++i == argv.size()) {
                 checkTTY();
@@ -742,8 +748,23 @@ int parseArguments(const std::vector<std::string>& argv) {
                       << "  -c=|--start-dir <dir>            Sets the directory that holds the startup computer's files\n"
                       << "  -d|--data-dir <dir>              Sets the directory that stores user data\n"
                       << "  --plugin <file>                  Adds an additional plugin to the load list\n"
-                      << "  -r|--renderer [renderer]         Lists all available renderers, or selects the renderer\n";
+                      << "  -r|--renderer [renderer]         Lists all available renderers, or selects the renderer\n\n"
+                      << "Run a file directly with `" << argv[0] << " [options...] <file.lua> [args...]`. The file's\n"
+                      << "directory is mounted at the computer root, so relative requires and file access work.\n";
             return 0;
+        } else if (!arg.empty() && arg[0] != '-' && script_file.empty()) {
+            const path_t script = absolutePath(arg);
+            std::error_code e;
+            if (!fs::is_regular_file(script, e)) {
+                std::cerr << "Could not find script file '" << arg << "'\n";
+                return 1;
+            }
+            script_file = script.string();
+            customMounts.push_back(std::make_tuple(std::string("/"), script.parent_path().string(), 1));
+            std::string args;
+            for (i++; i < argv.size(); i++) args += (args.empty() ? "" : " ") + argv[i];
+            if (!args.empty()) script_args = args;
+            break;
         }
     }
     return -1;

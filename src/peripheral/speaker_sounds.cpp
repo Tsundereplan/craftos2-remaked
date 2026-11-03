@@ -10,9 +10,13 @@
  */
 
 #ifndef NO_MIXER // don't build this unless we have to
+#include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 /*
 
@@ -37479,5 +37483,55 @@ std::unordered_map<std::string, std::pair<unsigned char *, unsigned int> > speak
   MAKESOUND(snare),
   MAKESOUND(xylophone)
 };
+
+// The trumpet instruments from Minecraft 26.1 are synthesized at startup, since
+// there are no freely licensed samples for them. They are distributed in the
+// public domain.
+static std::vector<unsigned char> synthesizeBrass(double frequency, double rolloff, double drive) {
+    const int sampleRate = 44100;
+    const int samples = sampleRate;
+    const double pi = 3.14159265358979323846;
+    std::vector<double> buf(samples);
+    double peak = 0.0;
+    for (int i = 0; i < samples; i++) {
+        const double t = (double)i / sampleRate;
+        double env;
+        if (t < 0.03) env = t / 0.03;
+        else if (t < 0.15) env = 1.0 - 0.3 * (t - 0.03) / 0.12;
+        else if (t < 0.7) env = 0.7;
+        else env = 0.7 * (1.0 - (t - 0.7) / 0.3);
+        const double brightness = 1.0 - exp(-t / 0.04);
+        const double vibrato = t > 0.2 ? 1.0 + 0.003 * sin(2.0 * pi * 5.0 * t) : 1.0;
+        double v = 0.0;
+        for (int k = 1; k <= 16 && frequency * k < sampleRate / 2; k++)
+            v += pow(k, -rolloff) * pow(brightness, k / 3.0) * sin(2.0 * pi * frequency * k * vibrato * t);
+        if (drive > 0.0) v = tanh(drive * v);
+        v *= env;
+        buf[i] = v;
+        if (fabs(v) > peak) peak = fabs(v);
+    }
+    const uint32_t dataSize = samples * 2;
+    std::vector<unsigned char> wav(44 + dataSize);
+    auto put32 = [&wav](size_t off, uint32_t v) {for (int j = 0; j < 4; j++) wav[off + j] = (v >> (8 * j)) & 0xFF;};
+    auto put16 = [&wav](size_t off, uint16_t v) {wav[off] = v & 0xFF; wav[off + 1] = v >> 8;};
+    memcpy(&wav[0], "RIFF", 4); put32(4, 36 + dataSize); memcpy(&wav[8], "WAVEfmt ", 8);
+    put32(16, 16); put16(20, 1); put16(22, 1); put32(24, sampleRate); put32(28, sampleRate * 2); put16(32, 2); put16(34, 16);
+    memcpy(&wav[36], "data", 4); put32(40, dataSize);
+    for (int i = 0; i < samples; i++) put16(44 + i * 2, (uint16_t)(int16_t)(buf[i] / peak * 0.8 * 32767));
+    return wav;
+}
+
+static struct TrumpetSoundsInit {
+    std::vector<unsigned char> trumpet = synthesizeBrass(369.99, 0.8, 0.0);              // F#4
+    std::vector<unsigned char> trumpet_exposed = synthesizeBrass(369.99, 0.8, 2.5);      // F#4, distorted
+    std::vector<unsigned char> trumpet_weathered = synthesizeBrass(185.00, 1.2, 0.0);    // F#3, trombone
+    std::vector<unsigned char> trumpet_oxidized = synthesizeBrass(185.00, 1.2, 2.5);     // F#3, distorted trombone
+    TrumpetSoundsInit() {
+        speaker_sounds["trumpet"] = {trumpet.data(), (unsigned)trumpet.size()};
+        speaker_sounds["trumpet_exposed"] = {trumpet_exposed.data(), (unsigned)trumpet_exposed.size()};
+        speaker_sounds["trumpet_weathered"] = {trumpet_weathered.data(), (unsigned)trumpet_weathered.size()};
+        speaker_sounds["trumpet_oxidized"] = {trumpet_oxidized.data(), (unsigned)trumpet_oxidized.size()};
+    }
+} trumpetSoundsInit;
 
 #endif

@@ -254,7 +254,8 @@ static int config_set(lua_State *L) {
             if (retval) lua_pushstring(L, config_set_action_names[retval]);
             else lua_pushnil(L);
         } else lua_pushnil(L);
-    } else luaL_error(L, "Unknown configuration option '%s'", lua_tostring(L, 1));
+    } else if (configSettings.find(name) != configSettings.end()) luaL_error(L, "Configuration option '%s' is protected and can only be changed in the config file", name);
+    else luaL_error(L, "Unknown configuration option '%s'", name);
     config_save();
     if (!isUserConfig) {
         if (configSettings[std::string(name)].first) lua_pushstring(L, config_set_action_names[configSettings[std::string(name)].first]);
